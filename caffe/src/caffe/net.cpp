@@ -35,7 +35,8 @@ Net<Dtype>::Net(const string& param_file, Phase phase, const Net* root_net)
   param.mutable_state()->set_phase(phase);
   Init(param);
 }
-
+// 可见，Init()函数完成了非常关键的网络初始化和层初始化操作。虽然代码很长但我们只要抓住几个核心对象（见标8-1）,了解其功能并密切关注其动态，即可掌握Init（）函数的执行流程和具体含义。
+// 在该函数中调用了3个登记注册函数，我们继续深入阅读其代码:见AppendTop函数.
 
 // 网络结构初始化，通过Net的构造函数调用
 template <typename Dtype>
@@ -43,7 +44,7 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
   CHECK(Caffe::root_solver() || root_net_)
       << "root_net_ needs to be set for all non-root solvers";
 
-  // 得到是训练网络还是测试网络
+  // 根据NetParameter对象设置处理阶段（Train/Test）得到是训练网络还是测试网络
   phase_ = in_param.state().phase();
 
 
@@ -59,7 +60,7 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
   // 传入网络结构参数，然后可以根据LayerParameter中的
   // include和exclude来确定该层是否应该包含在网络中，返回过滤过后的网络参数
   NetParameter filtered_param;
-  FilterNet(in_param, &filtered_param);
+  FilterNet(in_param, &filtered_param); // 过滤一些参数仅保留当前阶段参数。
 
   LOG_IF(INFO, Caffe::root_solver())
       << "Initializing net from parameters: " << std::endl
@@ -74,23 +75,25 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
   InsertSplits(filtered_param, &param);
 
   // Basically, build all the layers and set up their connections.
-  name_ = param.name();
-  map<string, int> blob_name_to_idx;
+//  构建所有Layer并将他们连接
+  name_ = param.name(); // 网络名
+  map<string, int> blob_name_to_idx; //Blob名与索引的映射
   LOG(INFO) <<  " -> " <<" "<<(blob_name_to_idx).size()<<"heheda";
 
   //
-  set<string> available_blobs;
-  memory_used_ = 0;
+  set<string> available_blobs; //已有Blob名的集合
+  memory_used_ = 0;//统计内存占用
 
   // For each layer, set up its input and output
   // resize是改变容器的大小，并且使用默认构造函数创建对象
   // 参数初始化
-  bottom_vecs_.resize(param.layer_size());
-  top_vecs_.resize(param.layer_size());
-  bottom_id_vecs_.resize(param.layer_size());
-  param_id_vecs_.resize(param.layer_size());
-  top_id_vecs_.resize(param.layer_size());
-  bottom_need_backward_.resize(param.layer_size());
+//  对每个Layer设置输入Blob（BottomBlob)和输出Blob（TopBlob）
+  bottom_vecs_.resize(param.layer_size()); // 有多少层就有多少个输入Blob
+  top_vecs_.resize(param.layer_size()); // 有多少层就有多少个输出Blob
+  bottom_id_vecs_.resize(param.layer_size()); //记录每个层的输入Blob索引
+  param_id_vecs_.resize(param.layer_size()); //记录每个层的权值Blob索引
+  top_id_vecs_.resize(param.layer_size());//记录每个层的输出Blob索引
+  bottom_need_backward_.resize(param.layer_size()); //记录每个Blob是否需要反向传播过程。
 
   // 循环每一层
   for (int layer_id = 0; layer_id < param.layer_size(); ++layer_id) {
@@ -125,7 +128,8 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
       layers_[layer_id]->SetShared(true);
     }
     else {
-
+//Layer工厂，专业制造各种Layer，然后添加到Net类的Layers_中
+//注意到这些Layer名称添加到Net类的layer_names_对象中。
       //把每一特定层的指针存放在容器中
       layers_.push_back(LayerRegistry<Dtype>::CreateLayer(layer_param));
 
@@ -142,12 +146,14 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
     // Figure out this layer's input and output
     // 计算这一层的输入和输出,注意第一层他妈的没有输出bottom，所以在第一层的时候并不会进入循环
     // 这个地方耽误了半天，妈的
+//    确定该Layer的输入Blob和输出Blob
     for (int bottom_id = 0; bottom_id < layer_param.bottom_size();
          ++bottom_id) {
       //LOG(INFO) <<  " -> " <<" "<<(blob_name_to_idx).size()<<"sbheheda";
+//      遍历所有Blob，记录到Blob名集合、Blob名到索引映射中。
       const int blob_id = AppendBottom(param, layer_id, bottom_id,
                                        &available_blobs, &blob_name_to_idx);
-
+// 只要有一个输入Blob需要反向传播，那么该层就需要反向传播。
       need_backward |= blob_need_backward_[blob_id];
     }
 
@@ -161,6 +167,7 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
       AppendTop(param, layer_id, top_id, &available_blobs, &blob_name_to_idx);
 
       // Collect Input layer tops as Net inputs.
+//      收集输入层（InputLayer）信息，如果有，其输出blob将作为整个net的输入。
       if (layer_param.type() == "Input") {
 
         const int blob_id = blobs_.size() - 1;
@@ -169,7 +176,7 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
 
       }
     }
-
+// Layer设置完毕，调用各个Layer的SetUp（）函数。
     // If the layer specifies that AutoTopBlobs() -> true and the LayerParameter
     // specified fewer than the required number (as specified by
     // ExactNumTopBlobs() or MinTopBlobs()), allocate them here.
@@ -210,6 +217,7 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
         << "Setting up " << layer_names_[layer_id];
 
     // 对每一层的输出blobs循环
+//    设置输出函数Blob对损失函数的投票因子。
     for (int top_id = 0; top_id < top_vecs_[layer_id].size(); ++top_id) {
 
       if (blob_loss_weights_.size() <= top_id_vecs_[layer_id][top_id]) {
@@ -219,21 +227,27 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
       LOG_IF(INFO, Caffe::root_solver())
           << "Top shape: " << top_vecs_[layer_id][top_id]->shape_string();
 
+//    打印每层输出的Blob尺寸信息
       if (layer->loss(top_id)) {
         LOG_IF(INFO, Caffe::root_solver())
             << "    with loss weight " << layer->loss(top_id);
+//            信不信由你，除了损失层的loss_weight为1,其他层都为0.
       }
 
       // 计算网络所使用的字节数
+//      统计每个输出Blob内存占用量
       memory_used_ += top_vecs_[layer_id][top_id]->count();
     }
 
     // 打印目前所需的存储
+//    打印所有输出Blob内存占用量
     LOG_IF(INFO, Caffe::root_solver())
         << "Memory required for data: " << memory_used_ * sizeof(Dtype);
 
     // param通常用来设置学习率之类的参数，每层的param有多少个则说明至少有这么多个
     // 可学习参数
+//    初始化各层权值Blob
+//参数是指学习率吗？学习率不是步长吗？
     const int param_size = layer_param.param_size();
 
     //可学习参数个数
@@ -513,6 +527,7 @@ bool Net<Dtype>::StateMeetsRule(const NetState& state,
 }
 
 // Helper for Net::Init: add a new top blob to the net.
+// 登记每层输出Blob
 template <typename Dtype>
 void Net<Dtype>::AppendTop(const NetParameter& param, const int layer_id,
                            const int top_id, set<string>* available_blobs,
@@ -526,7 +541,7 @@ void Net<Dtype>::AppendTop(const NetParameter& param, const int layer_id,
       layer_param->top(top_id) : "(automatic)";
 
   // Check if we are doing in-place computation
-  // 检查是否为同址计算（in-place computation，返回值覆盖原值而不占用新的内存）。
+  // 检查是否为同址（原位）计算（in-place computation，返回值覆盖原值而不占用新的内存）。
   // （比如Dropout运算，激活函数ReLu，Sigmoid等），其中输入bolb的名称和输出相同
   if (blob_name_to_idx && layer_param->bottom_size() > top_id &&
       blob_name == layer_param->bottom(top_id)) {
@@ -540,6 +555,7 @@ void Net<Dtype>::AppendTop(const NetParameter& param, const int layer_id,
     top_id_vecs_[layer_id].push_back((*blob_name_to_idx)[blob_name]);
 
   }
+//  如果不是原位计算但名字重复，则报错。
   else if (blob_name_to_idx &&
              blob_name_to_idx->find(blob_name) != blob_name_to_idx->end()) {
     // If we are not doing in-place computation but have duplicated blobs,
@@ -577,7 +593,7 @@ void Net<Dtype>::AppendTop(const NetParameter& param, const int layer_id,
 }
 
 // Helper for Net::Init: add a new bottom blob to the net.
-//
+// 登记每个输入Blob
 template <typename Dtype>
 int Net<Dtype>::AppendBottom(const NetParameter& param, const int layer_id,
     const int bottom_id, set<string>* available_blobs,
@@ -615,7 +631,7 @@ int Net<Dtype>::AppendBottom(const NetParameter& param, const int layer_id,
   bottom_need_backward_[layer_id].push_back(need_backward);
   return blob_id;
 }
-
+// 登记每层权值Blob
 template <typename Dtype>
 void Net<Dtype>::AppendParam(const NetParameter& param, const int layer_id,
                              const int param_id) {

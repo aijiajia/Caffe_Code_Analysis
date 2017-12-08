@@ -38,7 +38,7 @@ class Layer {
    * to SetUp(), where the dimensions of the bottom blobs are provided to the
    * layer.
    */
-
+// 显示的构造函数，从ＬayerＰarameter对象中夹在配置。
 	// 显示的构造函数不需要重写，任何初始工作在SetUp()中完成
 
 	// 构造方法只复制层参数说明的值，如果层说明参数中提供了权值和偏置参数，也复制
@@ -50,6 +50,7 @@ class Layer {
 
       // 在layer类中被初始化，如果blobs_size() > 0
       // 在prototxt文件中一般没有提供blobs参数，所以这段代码一般不执行
+//      按layer_param_设置本身Ｂlob对象个数，并依次将每个Ｂlob对象尺寸调整为layer_param_中的Ｂlob尺寸一致。
       if (layer_param_.blobs_size() > 0) {
         blobs_.resize(layer_param_.blobs_size());
 
@@ -85,14 +86,14 @@ class Layer {
    * 此方法非虚函数，不用重写，模式固定
    */
 
-  // layer 初始化设置
+  // layer 初始化设置，实现常用层配置接口，不可覆盖。
   void SetUp(const vector<Blob<Dtype>*>& bottom,   //在模型初始化时重置 layers 及其相互之间的连接 ;
       const vector<Blob<Dtype>*>& top) {
     InitMutex();
-    CheckBlobCounts(bottom, top);
-    LayerSetUp(bottom, top);
-    Reshape(bottom, top);
-    SetLossWeights(top);
+    CheckBlobCounts(bottom, top);//检查Ｂlob
+    LayerSetUp(bottom, top); //与层类型相关的配置过程
+    Reshape(bottom, top);//对top blob变形
+    SetLossWeights(top);//设置损失权值因子Ｂlob
   }
 
   /**
@@ -119,6 +120,7 @@ class Layer {
    * 此方法执行一次定制化的层初始化，包括从layer_param_读入并处理相关的层权值和偏置参数，
    * 调用Reshape函数申请top blob的存储空间,由派生类重写
    */
+//   层配置（虚）函数，做特定类型层相关的配置，由该类型层自己实现。
   virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {}
 
@@ -128,12 +130,14 @@ class Layer {
    *        not be shared. data layers should be shared to ensure each worker
    *        solver access data sequentially during data parallelism.
    */
-  virtual inline bool ShareInParallel() const { return false; }
+//   在数据并行中，一个Ｌayer是否被多个Ｎet共享。在默认情况下，只有数据读取层（Ｄatalayer）可被多个Ｎet共享，其他层不可以。
+  virtual inline bool ShareInParallel() const { return false; } //默认为否
 
   /** @brief Return whether this layer is actually shared by other nets.
    *         If ShareInParallel() is true and using more than one GPU and the
    *         net has TRAIN phase, then this function is expected return true.
    */
+//   返回实际是否被其他Ｎet共享。当ＳhareＩnＰarallel（）返回true，以及多个gpu被使用，网络处于训练阶段时，该函数返回true。
   inline bool IsShared() const { return is_shared_; }
 
   /** @brief Set whether this layer is actually shared by other nets
@@ -161,6 +165,7 @@ class Layer {
    * 每个子类Layer必须重写的Reshape函数，完成top blob形状的设置并为其分配存储空间
    */
   //纯虚函数，形参为<Blob<Dtype>*>容器的const引用
+//  变形（纯虚函数），修改Ｔop Ｂlob以及内部Ｂlob缓冲区的形状。
   virtual void Reshape(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) = 0;
 
@@ -183,6 +188,9 @@ class Layer {
    * 这两个函数非虚函数，它们内部会调用如下虚函数(Forward_cpu and (optionally) Forward_gpu)完成数据前向传递和误差反向传播，
    * 根据执行环境的不同每个子类Layer必须重写CPU和GPU版本
    */
+//   前向传播函数，给定Ｂottom Ｂlob，计算Ｔop Ｂlob和Ｌoss，返回值为当前层Ｌoss。
+//该函数会调用相应设备包装函数，如Ｆorward_cpu 或者 Forward_gpu 来实现真正的计算过程。如果该层有任意非零loss_weights参数，那么包装函数会计算并返回Ｌoss。
+//派生类应该实现Forward_cpu 和 Forward_gpu
   inline Dtype Forward(const vector<Blob<Dtype>*>& bottom,  //从 bottom 层中接收数据，进行计算后将输出送入到 top 层中;
       const vector<Blob<Dtype>*>& top);
 
@@ -207,6 +215,12 @@ class Layer {
    *
    * Your layer should implement Backward_cpu and (optionally) Backward_gpu.
    */
+//   反向传播函数，给定Top Blob误差梯，计算Bottom Blob误差梯度。
+// 参数说明：
+// top-Top Blob，其diff域包含来自上一层的误差梯度。
+// propagate_down -多路开关，与 Bottom Blob矢量维度相同，每个值表示是否将误差梯度传递到对应的Bottom Blob。
+// bottom-Bottom Blob，其diff域需要由该函数计算得到
+// 该函数会调用相应的设备包装函数，如Backward_cpu 或者 Backward_gpu来实现真正的计算过程，由派生类负责实现。
   inline void Backward(const vector<Blob<Dtype>*>& top, //给定相对于 top 层输出的梯度，计算其相对于输入的梯度，并传递到 bottom
 		                                                   //层。一个有参数的 layer 需要计算相对于各个参数的梯度值并存储在内部。
       const vector<bool>& propagate_down,
@@ -216,6 +230,7 @@ class Layer {
    * @brief Returns the vector of learnable parameter blobs.
    * 返回可学习的参数blobs
    */
+//   返回Layer内部可训练的权值、偏置项Blob向量。
   vector<shared_ptr<Blob<Dtype> > >& blobs() {
     return blobs_;
   }
@@ -237,6 +252,7 @@ class Layer {
    * @brief Returns the scalar loss associated with a top blob at a given index.
    */
   // 给定index返回相应的scalar loss
+//  返回某个Top Blob相关的标量loss值。
   inline Dtype loss(const int top_index) const {
     return (loss_.size() > top_index) ? loss_[top_index] : Dtype(0);
   }
@@ -244,6 +260,7 @@ class Layer {
   /**
    * @brief Sets the loss associated with a top blob at a given index.
    */
+//   设置某个Top Blob相关的标量loss值
   inline void set_loss(const int top_index, const Dtype value) {
     if (loss_.size() <= top_index) {
       loss_.resize(top_index + 1, Dtype(0));
@@ -255,6 +272,7 @@ class Layer {
    * @brief Returns the layer type.
    * 返回层类型
    */
+//   返回层类型字符串，便于识别，由派生类负责实现。
   virtual inline const char* type() const { return ""; }
 
 
@@ -269,6 +287,7 @@ class Layer {
    * layer expects some exact number of bottom blobs.
    *
    */
+//   返回Layer需要输入Blob数目，-1表示不关心。由派生类实现。
   virtual inline int ExactNumBottomBlobs() const { return -1; }
 
 
@@ -325,6 +344,7 @@ class Layer {
    * This method should be overridden to return true if your layer expects an
    * equal number of bottom and top blobs.
    */
+//   返回该Layer是否有相同的输入输出Blob，由派生类负责实现。
   virtual inline bool EqualNumBottomTopBlobs() const { return false; }
 
 
@@ -453,7 +473,7 @@ class Layer {
    * and top Blobs provided as input match the expected numbers specified by
    * the {ExactNum,Min,Max}{Bottom,Top}Blobs() functions.
    */
-  // 检查输出输出的blobs的个数是否在给定范围内
+  // 检查输入输出的blobs的个数是否在给定范围内
   virtual void CheckBlobCounts(const vector<Blob<Dtype>*>& bottom,
                                const vector<Blob<Dtype>*>& top) {
     if (ExactNumBottomBlobs() >= 0) {
@@ -497,6 +517,9 @@ class Layer {
    * Called by SetUp to initialize the weights associated with any top blobs in
    * the loss function. Store non-zero loss weights in the diff blob.
    */
+//   该函数在Layer的Setup函数中被调用，主要的是初始化与Top Blob相关的loss权重，放到Top Blob的diff 域，实际由Forward()计算loss函数。
+// loss_weights == 0 表示当前层不参与loss函数计算，大部分Layer属于这类。
+// loss_weights == 1 表示当前层参与loss函数计算，损失层（LossLayer）属于这一类。
   inline void SetLossWeights(const vector<Blob<Dtype>*>& top) {
     const int num_loss_weights = layer_param_.loss_weight_size();
     if (num_loss_weights) {

@@ -6,7 +6,9 @@
 #include <vector>
 
 #include "caffe/common.hpp"  //单例化caffe类，并且封装了boost和cuda随机数生成的函数，提供了统一接口
+//由protoc生成的头文件，声明了ＢlobＰroto、ＢlobＳhape等遵循caffe.proto协议的数据结构。
 #include "caffe/proto/caffe.pb.h"
+//cpu/gpu 共享内存类，用于数据同步。
 #include "caffe/syncedmem.hpp"
 
 /*
@@ -28,8 +30,8 @@ namespace caffe {
 template <typename Dtype>   //模板类，虚拟类型Dtype
 class Blob {
  public:
-  Blob() //构造函数：初始化列表 {空函数体}
-       : data_(), diff_(), count_(0), capacity_(0) {}
+  Blob() //构造函数：初始化列表 {空函数体} 参见印象笔记：类构造函数初始化列表
+       : data_(), diff_(), count_(0), capacity_(0) {} //caffe类中成员变量都带_后缀，这样在函数实现中容易区分临时变量和类成员变量。
 
 
   //当构造函数被声明 explicit 时,编译器将不使用它作为转换操作符。
@@ -144,6 +146,7 @@ class Blob {
    *        the second to last if index == -2, etc.
    *        Dies on out of range index.
    */
+//   转换坐标轴索引[-n,n)为普通索引[n,0)
   inline int CanonicalAxisIndex(int axis_index) const {
     CHECK_GE(axis_index, -num_axes())
         << "axis " << axis_index << " out of range for " << num_axes()
@@ -321,9 +324,9 @@ class Blob {
   bool ShapeEquals(const BlobProto& other);
 
  protected:
-  shared_ptr<SyncedMemory> data_; //存储前向传递数据
-  shared_ptr<SyncedMemory> diff_; //存储反向传递梯度
-  shared_ptr<SyncedMemory> shape_data_;
+  shared_ptr<SyncedMemory> data_; //存储前向传递数据。data指针。
+  shared_ptr<SyncedMemory> diff_; //存储反向传递梯度。diff指针。
+  shared_ptr<SyncedMemory> shape_data_; //形状信息
   vector<int> shape_;  //参数维度
   int count_; //Blob存储的元素个数（shape_所有元素乘积）
   int capacity_;//当前Blob的元素个数（控制动态分配）
